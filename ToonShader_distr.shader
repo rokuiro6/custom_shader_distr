@@ -24,7 +24,8 @@ Shader"Custom/ToonShader"
         _RimlightThickness("   Thickness",float) = 1.0
         _RimlightSharpness("   Sharpness",int) = 1
         [NoScaleOffset] _RimlightMaskMap("   Mask Map", 2D) = "white" {}
-        
+        //_RimlightIntens("Rimlight Intenstiy", float) = 1.0 HDR色にIntensityがあるため強度パラメータを除外する。(Intensity変数自体はあればスクリプトから操作しやすいかもしれない)
+
         // Highlight Parameter
         [Header(Highlight)][Space]
         [HDR] _HighlightColor("   Color", Color) = (1,1,1,1)
@@ -117,14 +118,12 @@ Shader"Custom/ToonShader"
                 float3 normalVS = TransformWorldToViewDir(normalInput.normalWS, true);
                 float2 offsetDir = normalize(normalVS.xy);
 
-                //ライトマスクの実装。
+                //ライトマスクの実装
                 float3 mainLightDirWS = GetMainLight().direction;
                 float3 mainLightDirCS = TransformWorldToViewDir(mainLightDirWS, true);
                 float lightMask = saturate(dot(normalVS,mainLightDirCS)* _LightDirectionMaskIntensity);
 
-                // UNITY_MATRIX_P[0][0], [1][1] を使って clip space に寄せる
                 float2 projScale = float2(UNITY_MATRIX_P[0][0], UNITY_MATRIX_P[1][1]);
-
                 float2 offset = offsetDir * normalize(projScale);
 
                 //補正係数の計算
@@ -132,6 +131,7 @@ Shader"Custom/ToonShader"
                 float3 cameraPosWS = GetCameraPositionWS();
                 float cameraDistance = distance(objectPosWS,cameraPosWS);
                 float correction = lerp(positionCS.w,1,smoothstep(_FadeStartDistance,_FadeEndDistance,cameraDistance));
+                
                 //ライン描画
                 positionCS.xy += offset * _OutlineThickness * correction * IN.vertexColor.r*lightMask;
 
@@ -249,7 +249,7 @@ Shader"Custom/ToonShader"
             half4 frag(Varyings IN) : SV_Target
             {
                 // get Positions
-                //カメラのワールド空間の座標は_WorldSpaceCameraPosで取得できる
+                //カメラのワールド空間の座標は_WorldSpaceCameraPosで取得
 
                 // get directions
                 float3 mainLightDirWS = normalize(GetMainLight().direction);
@@ -260,9 +260,9 @@ Shader"Custom/ToonShader"
                 // get dot
                 float mNdotV = dot(IN.meshNormalWS,viewDirWS);
                 float cNdotV = dot(IN.customNormalWS, viewDirWS);
-                float mNdotL = dot(IN.meshNormalWS, mainLightDirWS);
-                float cNdotL = dot(IN.customNormalWS, mainLightDirWS);
-                float TdotL = dot(IN.tangentWS, mainLightDirWS);
+                float mNdotL = dot(IN.meshNormalWS, -mainLightDirWS);
+                float cNdotL = dot(IN.customNormalWS, -mainLightDirWS);
+                float TdotL = dot(IN.tangentWS, -mainLightDirWS);
 
                 float isCharacterRight = sign(dot(mainLightDirWS, characterRight));
 
@@ -279,7 +279,7 @@ Shader"Custom/ToonShader"
                 float highlightMask = SAMPLE_TEXTURE2D(_HighlightMaskMap,sampler_HighlightMaskMap,IN.uv0).r;
                
                 // cal halfLambert
-                float halfLamFac = cNdotL * 0.5 + 0.5;
+                float halfLamFac = saturate(cNdotL * 0.5 + 0.5);
 
                 // cal LightMask
                 float lightMask = saturate(mNdotL * _LightDirectionMaskIntensity);
@@ -294,21 +294,22 @@ Shader"Custom/ToonShader"
                 // cal Atmoshere
                 float atmosphereFac = smoothstep(_AtmosphereFadeStartDistance,_AtmosphereFadeEndDistance,cameraDistanceWS) * _AtmosphereIntens;
 
-                // Facial Detail Shadow Control
+                // Facial Detail Shadow Control 実際の形状に応じた差分補助
                 half detailMask = SAMPLE_TEXTURE2D(_FacialDetailShadowCtrMap, sampler_FacialDetailShadowCtrMap, IN.uv0).r;
                 float detailMask_nose  = saturate((0.5 - detailMask) * 2.0);
                 float detailMask_cheek = saturate((detailMask - 0.5) * 2.0);
                 float sideMask = step(IN.uv0.x,0.5)*2 -1;
 
-                float firstShadowThreshold_cheek = step(0,mNdotL)*step(0,Cross2D(IN.customNormalWS.xz,mainLightDirWS.xz)*-sideMask)*detailMask_cheek;
+                // Facail Detail Shadow 頬
+                float firstShadowThreshold_cheek = step(0,-mNdotL)*detailMask_cheek*0.1;
 
                 // Facial Detail Shadow 鼻
                 // 前後判定
                 float noseSign = sign(-mNdotL);
-                // 左右判定 現在ライトが左右のどちらに存在するか。meshNormalなのは鼻は左右でベクトルが大きく異なるためCrossで、パカら無くなる点もうれしい
-                float noseCross = Cross2D(IN.meshNormalWS.xz, mainLightDirWS.xz);
+                // 左右判定 現在ライトが左右のどちらに存在するか
+                float noseCross = Cross2D(IN.meshNormalWS.xz, mainLightDirWS.xz);//noseCross = sign(-dot(characterRight,mainLightDirWS));これだとパかるためs採用しない
 
-                float firstShadowThreshold_nose = noseSign * step(0.0, noseCross * -sideMask * mNdotL) * detailMask_nose;
+                float firstShadowThreshold_nose = noseSign * step(0.0, noseCross * sideMask * mNdotL) * detailMask_nose;
 
 
                 // cel threshold
