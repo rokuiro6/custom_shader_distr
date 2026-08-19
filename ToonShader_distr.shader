@@ -301,7 +301,7 @@ Shader"Custom/ToonShader"
                 float sideMask = step(IN.uv0.x,0.5)*2 -1;
 
                 // Facail Detail Shadow 頬
-                float firstShadowThreshold_cheek = step(0,-mNdotL)*detailMask_cheek*0.1;
+                float firstShadowThreshold_cheek = step(0,mNdotL*0.5 + 0.5)*detailMask_cheek;
 
                 // Facial Detail Shadow 鼻
                 // 前後判定
